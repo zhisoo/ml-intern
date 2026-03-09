@@ -402,7 +402,13 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
     switch (event.event_type) {
       // -- Side-channel only events ----------------------------------------
       case 'ready':
-        this.sideChannel.onReady();
+        if (this.streamController) {
+          // Reconnect during an active turn — don't reset processing state,
+          // just signal that the connection is back.
+          this.sideChannel.onConnectionChange(true);
+        } else {
+          this.sideChannel.onReady();
+        }
         break;
 
       case 'shutdown':

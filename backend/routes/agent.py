@@ -386,20 +386,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         await websocket.close(code=4003, reason="Access denied")
         return
 
-    await ws_manager.connect(websocket, session_id)
+    had_buffered = await ws_manager.connect(websocket, session_id)
 
-    # Send "ready" immediately on WebSocket connection so the frontend
-    # knows the session is alive.  The original ready event from _run_session
-    # fires before the WS is connected and is always lost.
-    try:
-        await websocket.send_json(
-            {
-                "event_type": "ready",
-                "data": {"message": "Agent initialized"},
-            }
-        )
-    except Exception as e:
-        logger.error(f"Failed to send ready event for session {session_id}: {e}")
+    # Send "ready" on fresh connections so the frontend knows the session
+    # is alive.  Skip it when buffered events were flushed — those already
+    # contain the correct state and a ready would incorrectly reset
+    # isProcessing on the frontend.
+    if not had_buffered:
+        try:
+            await websocket.send_json(
+                {
+                    "event_type": "ready",
+                    "data": {"message": "Agent initialized"},
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to send ready event for session {session_id}: {e}")
 
     try:
         while True:

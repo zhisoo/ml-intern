@@ -307,6 +307,8 @@ class SessionManager:
         if not agent_session:
             return False
 
+        ws_manager.clear_buffer(session_id)
+
         # Cancel the task if running
         if agent_session.task and not agent_session.task.done():
             agent_session.task.cancel()

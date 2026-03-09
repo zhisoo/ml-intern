@@ -249,7 +249,7 @@ def _format_read_paper_toc(parsed: dict[str, Any], arxiv_id: str) -> str:
         lines.append(f"{prefix}- **{s['title']}**: {preview}")
 
     lines.append(
-        '\n**Tip:** Call read_paper with section parameter (e.g. section="4" or section="Experiments") to read a specific section.'
+        '\nCall read_paper with section parameter (e.g. section="4" or section="Experiments") to read a specific section.'
     )
     return "\n".join(lines)
 
