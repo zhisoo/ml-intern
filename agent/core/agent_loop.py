@@ -652,6 +652,10 @@ class Handlers:
             else:
                 rejected_tasks.append((tc, tool_name, approval_decision))
 
+        # Clear pending approval immediately so a page refresh during
+        # execution won't re-show the approval dialog.
+        session.pending_approval = None
+
         # Notify frontend of approval decisions immediately (before execution)
         for tc, tool_name, tool_args, _was_edited in approved_tasks:
             await session.send_event(
@@ -779,9 +783,6 @@ class Handlers:
                     },
                 )
             )
-
-        # Clear pending approval
-        session.pending_approval = None
 
         # Continue agent loop with empty input to process the tool results
         await Handlers.run_agent(session, "")
