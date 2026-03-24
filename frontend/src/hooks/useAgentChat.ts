@@ -339,51 +339,184 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
     return () => { cancelled = true; };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // -- Re-hydrate on wake from sleep (SSE stream may have died) -----------
-  const rehydratingRef = useRef(false);
+  // -- Re-hydrate + reconnect on wake from sleep ----------------------------
+  // The Vercel AI SDK only calls reconnectToStream() on mount, NOT on
+  // visibility change.  So when the browser wakes from sleep and the SSE
+  // stream is dead, we must manually:
+  //   1. Re-hydrate messages (one-shot fetch from backend)
+  //   2. Subscribe to live events via GET /api/events/{sessionId}
+  //   3. Pipe those events through the side-channel callbacks for real-time UI
+  //   4. Poll messages every few seconds so chat.setMessages stays in sync
+  const reconnectAbortRef = useRef<AbortController | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
-    const onVisible = async () => {
-      if (document.visibilityState !== 'visible') return;
-      if (rehydratingRef.current) return;
-      rehydratingRef.current = true;
+    /** Fetch latest messages from backend and push into the SDK. */
+    const hydrateMessages = async () => {
       try {
         const [msgsRes, infoRes] = await Promise.all([
           apiFetch(`/api/session/${sessionId}/messages`),
           apiFetch(`/api/session/${sessionId}`),
         ]);
-        if (!msgsRes.ok || !infoRes.ok) return;
-        const info = await infoRes.json();
+        if (!msgsRes.ok) return null;
         const data = await msgsRes.json();
-        if (!Array.isArray(data) || data.length === 0) return;
+        if (!Array.isArray(data) || data.length === 0) return null;
 
-        // Rebuild pending-approval set
         let pendingIds: Set<string> | undefined;
-        if (info.pending_approval && Array.isArray(info.pending_approval)) {
-          pendingIds = new Set(
-            info.pending_approval.map((t: { tool_call_id: string }) => t.tool_call_id)
-          );
-          if (pendingIds.size > 0) setNeedsAttention(sessionId, true);
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          if (info.pending_approval && Array.isArray(info.pending_approval)) {
+            pendingIds = new Set(
+              info.pending_approval.map((t: { tool_call_id: string }) => t.tool_call_id)
+            );
+            if (pendingIds.size > 0) setNeedsAttention(sessionId, true);
+          }
+          return { data, pendingIds, info };
         }
-
-        const uiMsgs = llmMessagesToUIMessages(data, pendingIds);
-        if (uiMsgs.length > 0) {
-          chat.setMessages(uiMsgs);
-          saveMessages(sessionId, uiMsgs);
-        }
-
-        // If the backend is still processing but we lost the SSE stream,
-        // mark the UI as busy so the chat input stays disabled.
-        if (info.is_processing) {
-          updateSession(sessionId, { isProcessing: true, activityStatus: { type: 'thinking' } });
-        }
+        return { data, pendingIds, info: null };
       } catch {
-        /* ignore — backend may be briefly unreachable */
-      } finally {
-        rehydratingRef.current = false;
+        return null;
       }
     };
+
+    /** Stop any running reconnection (event stream + poll). */
+    const stopReconnect = () => {
+      reconnectAbortRef.current?.abort();
+      reconnectAbortRef.current = null;
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+
+    /** Read the event stream from GET /api/events and forward to side-channel. */
+    const consumeEventStream = async (signal: AbortSignal) => {
+      try {
+        const res = await apiFetch(`/api/events/${sessionId}`, {
+          headers: { 'Accept': 'text/event-stream' },
+          signal,
+        });
+        if (!res.ok || !res.body) return;
+
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done || signal.aborted) break;
+          buf += value;
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(trimmed.slice(6));
+              // Forward to side-channel for real-time UI updates
+              const et = event.event_type as string;
+              if (et === 'processing') sideChannel.onProcessing();
+              else if (et === 'assistant_chunk') sideChannel.onStreaming();
+              else if (et === 'tool_call') {
+                const t = event.data?.tool as string;
+                const d = event.data?.arguments?.description as string | undefined;
+                sideChannel.onToolRunning(t, d);
+                sideChannel.onToolCallPanel(t, (event.data?.arguments || {}) as Record<string, unknown>);
+              } else if (et === 'tool_output') {
+                sideChannel.onToolOutputPanel(
+                  event.data?.tool as string,
+                  event.data?.tool_call_id as string,
+                  event.data?.output as string,
+                  event.data?.success as boolean,
+                );
+              } else if (et === 'tool_state_change') {
+                const state = event.data?.state as string;
+                const toolName = event.data?.tool as string;
+                if (state === 'running' && toolName) sideChannel.onToolRunning(toolName);
+              } else if (et === 'turn_complete' || et === 'error' || et === 'interrupted') {
+                sideChannel.onProcessingDone();
+                stopReconnect();
+                // Final hydration to get the complete message state
+                const result = await hydrateMessages();
+                if (result) {
+                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds);
+                  if (uiMsgs.length > 0) {
+                    chat.setMessages(uiMsgs);
+                    saveMessages(sessionId, uiMsgs);
+                  }
+                }
+                return;
+              } else if (et === 'approval_required') {
+                sideChannel.onApprovalRequired(
+                  (event.data?.tools || []) as Array<{ tool: string; arguments: Record<string, unknown>; tool_call_id: string }>,
+                );
+                stopReconnect();
+                const result = await hydrateMessages();
+                if (result) {
+                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds);
+                  if (uiMsgs.length > 0) {
+                    chat.setMessages(uiMsgs);
+                    saveMessages(sessionId, uiMsgs);
+                  }
+                }
+                return;
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      } catch {
+        /* stream ended or aborted */
+      }
+    };
+
+    const onVisible = async () => {
+      if (document.visibilityState !== 'visible') return;
+
+      // Always re-hydrate messages on wake
+      const result = await hydrateMessages();
+      if (!result) return;
+
+      const { data, pendingIds, info } = result;
+      const uiMsgs = llmMessagesToUIMessages(data, pendingIds);
+      if (uiMsgs.length > 0) {
+        chat.setMessages(uiMsgs);
+        saveMessages(sessionId, uiMsgs);
+      }
+
+      // If the backend is still processing, reconnect to the live event stream
+      if (info?.is_processing) {
+        updateSession(sessionId, { isProcessing: true, activityStatus: { type: 'thinking' } });
+
+        // Stop any previous reconnection
+        stopReconnect();
+
+        // Start live event subscription
+        const abort = new AbortController();
+        reconnectAbortRef.current = abort;
+        consumeEventStream(abort.signal);
+
+        // Poll messages every 3 s so the chat message list stays up-to-date
+        // (the event stream gives us real-time status but not full message diffs)
+        pollTimerRef.current = setInterval(async () => {
+          const fresh = await hydrateMessages();
+          if (!fresh) return;
+          const msgs = llmMessagesToUIMessages(fresh.data, fresh.pendingIds);
+          if (msgs.length > 0) {
+            chat.setMessages(msgs);
+            saveMessages(sessionId, msgs);
+          }
+          // If backend stopped processing, clean up
+          if (fresh.info && !fresh.info.is_processing) {
+            updateSession(sessionId, { isProcessing: false });
+            stopReconnect();
+          }
+        }, 3000);
+      }
+    };
+
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      stopReconnect();
+    };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Persist messages ---------------------------------------------------

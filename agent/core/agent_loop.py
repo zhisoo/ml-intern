@@ -255,6 +255,7 @@ class Handlers:
                     tool_choice="auto",
                     stream=True,
                     stream_options={"include_usage": True},
+                    timeout=600,  # 10 min — long tool-use turns can take a while
                     **llm_params,
                 )
 
