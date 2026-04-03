@@ -221,6 +221,9 @@ class ContextManager:
 
         return False
 
+    # Tools whose outputs should never be pruned (too valuable to summarise)
+    _PRUNE_SKIP_TOOLS: set[str] = {"research"}
+
     def prune_old_tool_outputs(self) -> None:
         """Stage 1 compaction: deterministically truncate old tool outputs.
 
@@ -241,6 +244,8 @@ class ContextManager:
                 continue
 
             tool_name = getattr(msg, "name", None) or "tool"
+            if tool_name in self._PRUNE_SKIP_TOOLS:
+                continue
             preview = content[:80]
             total = len(content)
 
