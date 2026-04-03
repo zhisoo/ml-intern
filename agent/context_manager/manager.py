@@ -115,13 +115,15 @@ class ContextManager:
         hf_user_info = _get_hf_username(hf_token)
 
         template = Template(template_str)
-        return template.render(
+        static_prompt = template.render(
             tools=tool_specs,
             num_tools=len(tool_specs),
-            current_date=current_date,
-            current_time=current_time,
-            current_timezone=current_timezone,
-            hf_user_info=hf_user_info,
+        )
+        return (
+            f"{static_prompt}\n\n"
+            f"[Session context: Date={current_date}, Time={current_time}, "
+            f"Timezone={current_timezone}, User={hf_user_info}, "
+            f"Tools={len(tool_specs)}]"
         )
 
     def add_message(self, message: Message, token_count: int = None) -> None:
