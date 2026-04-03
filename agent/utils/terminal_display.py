@@ -65,22 +65,22 @@ def print_tool_output(output: str, success: bool, truncate: bool = True) -> None
 
 
 class SubAgentDisplay:
-    """Rolling 3-line display showing the last 3 sub-agent tool calls, updated in-place."""
+    """Rolling 2-line gray display of the last 2 sub-agent tool calls, truncated to 20 chars."""
 
-    _MAX_VISIBLE = 3
+    _MAX_VISIBLE = 2
+    _MAX_CHARS = 20
 
     def __init__(self):
         self._calls: list[str] = []
         self._lines_on_screen = 0
 
     def update(self, tool_desc: str) -> None:
-        """Add a tool call and redraw the rolling display."""
-        self._calls.append(tool_desc)
+        truncated = tool_desc[:self._MAX_CHARS] + ("…" if len(tool_desc) > self._MAX_CHARS else "")
+        self._calls.append(truncated)
         visible = self._calls[-self._MAX_VISIBLE:]
         self._redraw(visible)
 
     def clear(self) -> None:
-        """Erase the display and reset state."""
         if self._lines_on_screen > 0:
             f = _console.file
             for _ in range(self._lines_on_screen):
@@ -91,17 +91,11 @@ class SubAgentDisplay:
 
     def _redraw(self, visible: list[str]) -> None:
         f = _console.file
-        # Erase previous lines
         if self._lines_on_screen > 0:
             for _ in range(self._lines_on_screen):
                 f.write("\033[A\033[K")
-        # Draw new lines
-        for i, desc in enumerate(visible):
-            dim = i < len(visible) - 1  # older calls are dimmer
-            if dim:
-                f.write(f"{_I}  \033[2m{desc}\033[0m\n")
-            else:
-                f.write(f"{_I}\033[36m▸ {desc}\033[0m\n")
+        for desc in visible:
+            f.write(f"{_I}  \033[2m{desc}\033[0m\n")
         f.flush()
         self._lines_on_screen = len(visible)
 
