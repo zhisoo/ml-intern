@@ -221,10 +221,51 @@ class ContextManager:
 
         return False
 
+    def prune_old_tool_outputs(self) -> None:
+        """Stage 1 compaction: deterministically truncate old tool outputs.
+
+        For any tool message older than the last 6 messages, replace content
+        exceeding 500 chars with a short one-line summary preserving
+        tool_call_id and name.
+        """
+        if len(self.items) <= 6:
+            return
+
+        cutoff = len(self.items) - 6
+        for i in range(cutoff - 1, -1, -1):
+            msg = self.items[i]
+            if getattr(msg, "role", None) != "tool":
+                continue
+            content = getattr(msg, "content", None) or ""
+            if len(content) <= 500:
+                continue
+
+            tool_name = getattr(msg, "name", None) or "tool"
+            preview = content[:80]
+            total = len(content)
+
+            if tool_name == "hf_jobs":
+                summary = f"[hf_jobs: {preview}... ({total} chars)]"
+            elif tool_name == "bash":
+                # Try to extract exit_code from content
+                exit_code_part = ""
+                if "exit_code" in content[:200]:
+                    for line in content[:200].splitlines():
+                        if "exit_code" in line:
+                            exit_code_part = f"exit_code visible if present, "
+                            break
+                summary = f"[bash: {exit_code_part}{preview}... ({total} chars)]"
+            else:
+                summary = f"[{tool_name}: {preview}... ({total} chars)]"
+
+            msg.content = summary
+
     async def compact(
         self, model_name: str, tool_specs: list[dict] | None = None
     ) -> None:
         """Remove old messages to keep history under target size"""
+        self.prune_old_tool_outputs()
+
         if (self.context_length <= self.max_context) or not self.items:
             return
 
