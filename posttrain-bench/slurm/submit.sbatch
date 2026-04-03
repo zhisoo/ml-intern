@@ -93,9 +93,7 @@ srun \
 
         # Install agent from mounted repo
         cd /agent_repo
-        uv venv --python 3.12 /tmp/agent_venv
-        source /tmp/agent_venv/bin/activate
-        uv sync --extra agent --no-dev
+        uv sync --extra agent --no-dev --python 3.12
 
         # Run agent in the task directory
         cd /home/ben/task
@@ -106,7 +104,7 @@ srun \
             MODEL_FLAG="--model anthropic/'"${AGENT_CONFIG}"'"
         fi
 
-        python -m agent.main --max-iterations -1 $MODEL_FLAG "$PROMPT"
+        uv run --project /agent_repo python -m agent.main --max-iterations -1 $MODEL_FLAG "$PROMPT"
     ' > "${SOLVE_OUT}" 2>&1 || true
 
 END_TIME=$(date +%s)
