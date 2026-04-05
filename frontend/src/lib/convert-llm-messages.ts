@@ -16,19 +16,24 @@ interface LLMMessage {
   name?: string | null;
 }
 
-let idCounter = 0;
+// Generate stable IDs based on message position to prevent duplicate renders
+// when the same message is re-converted multiple times (e.g., during polling)
+let uiMessageCounter = 0;
 function nextId(): string {
-  return `msg-${Date.now()}-${++idCounter}`;
+  return `msg-${++uiMessageCounter}`;
 }
 
 /**
  * @param pendingApprovalIds - Set of tool_call_ids that are waiting for approval.
  *   When provided, matching tool calls without results will get state
  *   'approval-requested' instead of 'input-available'.
+ * @param existingUIMessages - Current UI messages to preserve IDs when content matches.
+ *   This prevents React from re-rendering messages with new IDs during polling.
  */
 export function llmMessagesToUIMessages(
   messages: LLMMessage[],
   pendingApprovalIds?: Set<string>,
+  existingUIMessages?: UIMessage[],
 ): UIMessage[] {
   // Build a map of tool_call_id -> tool result for pairing
   const toolResults = new Map<string, { output: string; isError: boolean }>();
@@ -43,13 +48,22 @@ export function llmMessagesToUIMessages(
 
   const uiMessages: UIMessage[] = [];
 
+  // Helper to get existing message ID at a given position if roles match
+  const getExistingId = (index: number, role: 'user' | 'assistant'): string | null => {
+    if (!existingUIMessages || index >= existingUIMessages.length) return null;
+    const existing = existingUIMessages[index];
+    return existing.role === role ? existing.id : null;
+  };
+
   for (const msg of messages) {
     if (msg.role === 'system') continue;
     if (msg.role === 'tool') continue; // handled via tool_calls pairing
 
     if (msg.role === 'user') {
+      // Try to reuse existing ID if the message at this position matches
+      const existingId = getExistingId(uiMessages.length, 'user');
       uiMessages.push({
-        id: nextId(),
+        id: existingId || nextId(),
         role: 'user',
         parts: [{ type: 'text', text: msg.content || '' }],
       });
@@ -109,8 +123,11 @@ export function llmMessagesToUIMessages(
       if (prev && prev.role === 'assistant') {
         prev.parts.push(...parts);
       } else {
+        // Try to reuse existing ID if the message at this position matches
+        const existingId = getExistingId(uiMessages.length, 'assistant');
+        const newId = existingId || nextId();
         uiMessages.push({
-          id: nextId(),
+          id: newId,
           role: 'assistant',
           parts,
         });

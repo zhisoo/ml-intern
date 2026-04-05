@@ -38,7 +38,8 @@ function writeAll(map: MessagesMap): void {
 
 export function loadMessages(sessionId: string): UIMessage[] {
   const map = readAll();
-  return map[sessionId] ?? [];
+  const messages = map[sessionId] ?? [];
+  return messages;
 }
 
 export function saveMessages(sessionId: string, messages: UIMessage[]): void {

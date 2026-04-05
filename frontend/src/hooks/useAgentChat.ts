@@ -360,7 +360,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
         if (msgsRes.ok) {
           const data = await msgsRes.json();
           if (cancelled || !Array.isArray(data) || data.length === 0) return;
-          const uiMsgs = llmMessagesToUIMessages(data, pendingIds);
+          const uiMsgs = llmMessagesToUIMessages(data, pendingIds, chatActionsRef.current.messages);
           if (uiMsgs.length > 0) {
             chat.setMessages(uiMsgs);
             saveMessages(sessionId, uiMsgs);
@@ -481,7 +481,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
                 // Final hydration to get the complete message state
                 const result = await hydrateMessages();
                 if (result) {
-                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds);
+                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds, chatActionsRef.current.messages);
                   if (uiMsgs.length > 0) {
                     chat.setMessages(uiMsgs);
                     saveMessages(sessionId, uiMsgs);
@@ -495,7 +495,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
                 stopReconnect();
                 const result = await hydrateMessages();
                 if (result) {
-                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds);
+                  const uiMsgs = llmMessagesToUIMessages(result.data, result.pendingIds, chatActionsRef.current.messages);
                   if (uiMsgs.length > 0) {
                     chat.setMessages(uiMsgs);
                     saveMessages(sessionId, uiMsgs);
@@ -519,7 +519,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
       if (!result) return;
 
       const { data, pendingIds, info } = result;
-      const uiMsgs = llmMessagesToUIMessages(data, pendingIds);
+      const uiMsgs = llmMessagesToUIMessages(data, pendingIds, chatActionsRef.current.messages);
       if (uiMsgs.length > 0) {
         chat.setMessages(uiMsgs);
         saveMessages(sessionId, uiMsgs);
@@ -542,11 +542,14 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
         pollTimerRef.current = setInterval(async () => {
           const fresh = await hydrateMessages();
           if (!fresh) return;
-          const msgs = llmMessagesToUIMessages(fresh.data, fresh.pendingIds);
-          if (msgs.length > 0) {
+          const msgs = llmMessagesToUIMessages(fresh.data, fresh.pendingIds, chatActionsRef.current.messages);
+
+          const currentCount = chatActionsRef.current.messages.length;
+          if (msgs.length > currentCount || currentCount === 0) {
             chat.setMessages(msgs);
             saveMessages(sessionId, msgs);
-          }
+          } 
+
           // If backend stopped processing, clean up
           if (fresh.info && !fresh.info.is_processing) {
             updateSession(sessionId, { isProcessing: false });
@@ -570,7 +573,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
     if (chat.messages.length !== prevLenRef.current) {
       prevLenRef.current = chat.messages.length;
       saveMessages(sessionId, chat.messages);
-    }
+    } 
   }, [sessionId, chat.messages]);
 
   // -- Undo last turn (REST call + client-side message removal) -----------
