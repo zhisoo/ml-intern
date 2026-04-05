@@ -63,6 +63,8 @@ export interface PerSessionState {
   plan: PlanItem[];
   /** Steps completed by the research sub-agent (tool_log events). */
   researchSteps: string[];
+  /** Live stats from the research sub-agent. */
+  researchStats: { toolCount: number; tokenCount: number; startedAt: number | null; finalElapsed: number | null };
 }
 
 const defaultSessionState: PerSessionState = {
@@ -73,6 +75,7 @@ const defaultSessionState: PerSessionState = {
   panelEditable: false,
   plan: [],
   researchSteps: [],
+  researchStats: { toolCount: 0, tokenCount: 0, startedAt: null, finalElapsed: null },
 };
 
 interface AgentStore {
@@ -271,6 +274,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
         panelEditable: state.panelEditable,
         plan: state.plan,
         researchSteps: state.sessionStates[state.activeSessionId]?.researchSteps ?? [],
+        researchStats: state.sessionStates[state.activeSessionId]?.researchStats ?? defaultSessionState.researchStats,
       };
     }
 

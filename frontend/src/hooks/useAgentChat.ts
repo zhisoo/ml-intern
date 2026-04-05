@@ -86,14 +86,39 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
         }
       },
       onToolLog: (tool: string, log: string) => {
-        // Research sub-agent: accumulate steps + update activity status
+        // Research sub-agent: parse stats vs step logs
         if (tool === 'research') {
           const sessState = useAgentStore.getState().getSessionState(sessionId);
-          const steps = [...sessState.researchSteps, log];
-          updateSession(sessionId, {
-            researchSteps: steps,
-            activityStatus: { type: 'tool', toolName: 'research', description: log },
-          });
+          const stats = { ...sessState.researchStats };
+
+          if (log === 'Starting research sub-agent...') {
+            updateSession(sessionId, {
+              researchSteps: [],
+              researchStats: { toolCount: 0, tokenCount: 0, startedAt: Date.now(), finalElapsed: null },
+              activityStatus: { type: 'tool', toolName: 'research', description: log },
+            });
+          } else if (log.startsWith('tokens:')) {
+            stats.tokenCount = parseInt(log.slice(7), 10);
+            updateSession(sessionId, { researchStats: stats });
+          } else if (log.startsWith('tools:')) {
+            stats.toolCount = parseInt(log.slice(6), 10);
+            updateSession(sessionId, { researchStats: stats });
+          } else if (log === 'Research complete.') {
+            const elapsed = stats.startedAt
+              ? Math.round((Date.now() - stats.startedAt) / 1000)
+              : null;
+            updateSession(sessionId, {
+              researchStats: { ...stats, startedAt: null, finalElapsed: elapsed },
+              activityStatus: { type: 'tool', toolName: 'research', description: log },
+            });
+          } else {
+            // Regular tool call step — append
+            const steps = [...sessState.researchSteps, log];
+            updateSession(sessionId, {
+              researchSteps: steps,
+              activityStatus: { type: 'tool', toolName: 'research', description: log },
+            });
+          }
           return;
         }
 
@@ -235,8 +260,11 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
         const updates: Partial<import('@/store/agentStore').PerSessionState> = {
           activityStatus: { type: 'tool', toolName, description },
         };
-        // Clear research steps when a new research call starts
-        if (toolName === 'research') updates.researchSteps = [];
+        // Clear research steps + stats when a new research call starts
+        if (toolName === 'research') {
+          updates.researchSteps = [];
+          updates.researchStats = { toolCount: 0, tokenCount: 0, startedAt: null, finalElapsed: null };
+        }
         updateSession(sessionId, updates);
       },
       onInterrupted: () => { /* no-op — handled by stop() caller */ },
