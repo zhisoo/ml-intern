@@ -177,7 +177,9 @@ async def generate_title(
     )
     try:
         response = await acompletion(
-            model="openai/gpt-oss-20b:groq",
+            # Double openai/ prefix: LiteLLM strips the first as its provider
+            # prefix, leaving openai/gpt-oss-20b:groq as the HF router model id.
+            model="openai/openai/gpt-oss-20b:groq",
             api_base="https://router.huggingface.co/v1",
             api_key=api_key,
             messages=[
@@ -193,9 +195,12 @@ async def generate_title(
                 },
                 {"role": "user", "content": request.text[:500]},
             ],
-            max_tokens=20,
+            # gpt-oss-20b is a reasoning model — without this it burns the
+            # whole max_tokens budget on reasoning and returns empty content.
+            extra_body={"reasoning_effort": "low"},
+            max_tokens=60,
             temperature=0.3,
-            timeout=8,
+            timeout=10,
         )
         title = response.choices[0].message.content.strip().strip('"').strip("'")
         title = title.translate(_TITLE_STRIP_CHARS).strip()
