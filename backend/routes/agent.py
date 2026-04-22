@@ -157,22 +157,38 @@ async def set_model(body: dict, user: dict = Depends(get_current_user)) -> dict:
     return {"model": model_id}
 
 
+_TITLE_STRIP_CHARS = str.maketrans("", "", "`*_~#[]()")
+
+
 @router.post("/title")
 async def generate_title(
     request: SubmitRequest, user: dict = Depends(get_current_user)
 ) -> dict:
-    """Generate a short title for a chat session based on the first user message."""
-    model = session_manager.config.model_name
-    llm_params = _resolve_llm_params(model, reasoning_effort="high")
+    """Generate a short title for a chat session based on the first user message.
+
+    Always uses gpt-oss-20b via Groq on the HF router. The tab headline
+    renders as plain text, so the model is told to avoid markdown and any
+    stray formatting characters are stripped before returning.
+    """
+    api_key = (
+        os.environ.get("INFERENCE_TOKEN")
+        or (user.get("hf_token") if isinstance(user, dict) else None)
+        or os.environ.get("HF_TOKEN")
+    )
     try:
         response = await acompletion(
+            model="openai/gpt-oss-20b:groq",
+            api_base="https://router.huggingface.co/v1",
+            api_key=api_key,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         "Generate a very short title (max 6 words) for a chat conversation "
                         "that starts with the following user message. "
-                        "Reply with ONLY the title, no quotes, no punctuation at the end."
+                        "Reply with ONLY the title in plain text. "
+                        "Do NOT use markdown, backticks, asterisks, quotes, brackets, or any "
+                        "formatting characters. No punctuation at the end."
                     ),
                 },
                 {"role": "user", "content": request.text[:500]},
@@ -180,16 +196,14 @@ async def generate_title(
             max_tokens=20,
             temperature=0.3,
             timeout=8,
-            **llm_params,
         )
         title = response.choices[0].message.content.strip().strip('"').strip("'")
-        # Safety: cap at 50 chars
+        title = title.translate(_TITLE_STRIP_CHARS).strip()
         if len(title) > 50:
             title = title[:50].rstrip() + "…"
         return {"title": title}
     except Exception as e:
         logger.warning(f"Title generation failed: {e}")
-        # Fallback: truncate the message
         fallback = request.text.strip()
         title = fallback[:40].rstrip() + "…" if len(fallback) > 40 else fallback
         return {"title": title}
