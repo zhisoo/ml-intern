@@ -4,24 +4,38 @@ These rules override the default review guidance. Treat them as the highest-prio
 instruction block for any review of this repo. If something here contradicts a more
 generic review habit, follow these.
 
+## Severity levels
+
+Every finding carries one of three priority labels:
+
+- **P0** — blocks merge. Would break production behavior, leak data or cost, or
+  break a rollback.
+- **P1** — worth fixing, not blocking. Minor bugs, code-quality issues, or
+  follow-up refactors.
+- **P2** — informational. Pre-existing bugs not introduced by this PR, context
+  the author should know, or non-blocking observations.
+
+Write labels as plain text (`P0`, `P1`, `P2`) in finding headers. Do not use
+emoji or colored markers.
+
 ## Default bias: merge
 
 The goal of review is to catch things that would break production or leak cost,
-not to gate every PR on a round trip. **Default bias is to merge.** Only 🔴
-Important findings read as "fix before merge." 🟡 Nit and 🟣 Pre-existing are
-informational — the author may defer them to a follow-up issue or a "fix-it" pass
-at their discretion, and the review should not frame them as required changes.
+not to gate every PR on a round trip. **Default bias is to merge.** Only P0
+findings read as "fix before merge." P1 and P2 are informational — the author
+may defer them to a follow-up issue or a "fix-it" pass at their discretion, and
+the review should not frame them as required changes.
 
-If the author pushes back on a 🟡 or 🟣 without fixing it, accept the pushback —
+If the author pushes back on a P1 or P2 without fixing it, accept the pushback —
 do not re-flag it on subsequent commits. If Claude and the author repeatedly
 disagree on the same class of finding, the signal is that REVIEW.md is missing a
 rule; note it once in the PR summary as `suggest-rule: <short description>` and
 stop.
 
-## What "Important" means here
+## What counts as P0 in this repo
 
-Reserve 🔴 Important for findings that would break production behavior, leak data or
-cost, or break a rollback. For this repo that means:
+Reserve P0 for findings that would break production behavior, leak data or cost,
+or break a rollback. For this repo that means:
 
 - **LLM routing breakage** — changes that break LiteLLM calls or Bedrock inference
   profile routing (`bedrock/us.anthropic.claude-*` ids, `anthropic/`, `openai/`,
@@ -44,21 +58,21 @@ cost, or break a rollback. For this repo that means:
   matching React client update (or vice versa).
 
 Everything else — style, naming, refactor suggestions, docstring polish, test
-organization — is 🟡 Nit at most.
+organization — is P1 at most.
 
-## Nit cap
+## P1 cap
 
-Report at most **5** 🟡 Nits per review. If you found more, say "plus N similar
-items" in the summary. If everything you found is a Nit, open the summary with
-"No blocking issues."
+Report at most **5** P1 findings per review. If you found more, say "plus N
+similar items" in the summary. If everything you found is P1 or below, open the
+summary with "No blocking issues."
 
 ## Re-review convergence
 
 If this PR has already received a Claude review (there is a prior review comment
-by the `claude` bot), suppress new Nit findings and post only 🔴 Important ones.
-Do not re-post Nits that were already flagged on earlier commits. If the author
-pushed a fix for a previously flagged issue, acknowledge it in one line rather
-than re-flagging.
+by the `claude` bot), suppress new P1 findings and post only P0 ones. Do not
+re-post P1s that were already flagged on earlier commits. If the author pushed a
+fix for a previously flagged issue, acknowledge it in one line rather than
+re-flagging.
 
 ## Do not report
 
@@ -91,17 +105,17 @@ Anything speculative — do not post:
   router catalog lookup.
 - New LLM calls pass through `agent/core/llm_params.py` so effort and caching
   are applied uniformly. Inline `litellm.acompletion` calls that bypass it are
-  🔴 Important.
+  P0.
 - New tools classified as destructive (writes to jobs, sandbox, filesystem)
-  require approval; missing `approval_required` semantics is 🔴 Important.
+  require approval; missing `approval_required` semantics is P0.
 - New backend routes that mutate state require the bearer-token / auth guard.
-  Public routes that leak user input into logs are 🔴 Important.
+  Public routes that leak user input into logs are P0.
 - Changes to `agent/prompts/system_prompt_v*.yaml` — diff against the previous
   version and call out any **dropped rules** explicitly; an unintentionally
-  removed guardrail is 🔴 Important.
+  removed guardrail is P0.
 - Changes to prompt-cache markers — the cache breakpoint on the system prompt
-  and the tool block must stay intact. Breaking the cache silently is 🔴
-  Important (cost regression).
+  and the tool block must stay intact. Breaking the cache silently is P0 (cost
+  regression).
 
 ## Verification bar
 
@@ -117,8 +131,8 @@ author can verify the chain end-to-end.
 
 Open the review body with a single-line tally:
 
-- `3 important, 2 nits` if both, or
-- `No blocking issues — 2 nits` if no Important, or
+- `2 P0, 3 P1` if both, or
+- `No blocking issues — 3 P1` if no P0, or
 - `LGTM` if nothing at all.
 
 Then a **What I checked** bullet list — one line per major area you examined,

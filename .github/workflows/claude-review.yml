@@ -41,9 +41,10 @@ jobs:
             cat <<'BASE'
           Review this pull request against the main branch.
 
-          Use severity markers on every finding: 🔴 Important, 🟡 Nit, 🟣 Pre-existing.
-          Open the review body with a one-line tally ("N important, M nits", or
-          "No blocking issues — N nits", or "LGTM" if nothing). Cite file:line for
+          Tag every finding with a priority label: P0 (blocks merge), P1 (worth
+          fixing, not blocking), or P2 (informational / pre-existing). Open the
+          review body with a one-line tally ("2 P0, 3 P1", or
+          "No blocking issues — 3 P1", or "LGTM" if nothing). Cite file:line for
           every behavior claim. Prefer inline comments over long summaries.
 
           Fallback focus if REVIEW.md is missing: correctness, security (auth,
