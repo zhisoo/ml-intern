@@ -58,6 +58,25 @@ def upload_session_as_file(
                 json.dump(data, f, indent=2)
             return False
 
+        # Scrub secrets (HF tokens, API keys, etc.) from messages + events
+        # before they leave the local disk. Best-effort regex-based redaction —
+        # see agent/core/redact.py for the patterns covered.
+        try:
+            from agent.core.redact import scrub  # type: ignore
+        except Exception:
+            # Fallback for environments where the agent package isn't importable
+            # (shouldn't happen in our subprocess, but be defensive).
+            import importlib.util
+            _spec = importlib.util.spec_from_file_location(
+                "_redact",
+                Path(__file__).parent / "redact.py",
+            )
+            _mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore
+            scrub = _mod.scrub
+        scrubbed_messages = scrub(data["messages"])
+        scrubbed_events = scrub(data["events"])
+
         # Prepare JSONL content (single line)
         # Store messages and events as JSON strings to avoid schema conflicts
         session_row = {
@@ -65,8 +84,8 @@ def upload_session_as_file(
             "session_start_time": data["session_start_time"],
             "session_end_time": data["session_end_time"],
             "model_name": data["model_name"],
-            "messages": json.dumps(data["messages"]),
-            "events": json.dumps(data["events"]),
+            "messages": json.dumps(scrubbed_messages),
+            "events": json.dumps(scrubbed_events),
         }
 
         # Create temporary JSONL file

@@ -29,6 +29,20 @@ async def lifespan(app: FastAPI):
     logger.info("Starting HF Agent backend...")
     yield
     logger.info("Shutting down HF Agent backend...")
+    # Final-flush: save every still-active session so we don't lose traces on
+    # server restart. Uploads are detached subprocesses — this is fast.
+    try:
+        from session_manager import session_manager
+        for sid, agent_session in list(session_manager.sessions.items()):
+            sess = agent_session.session
+            if sess.config.save_sessions:
+                try:
+                    sess.save_and_upload_detached(sess.config.session_dataset_repo)
+                    logger.info("Flushed session %s on shutdown", sid)
+                except Exception as e:
+                    logger.warning("Failed to flush session %s: %s", sid, e)
+    except Exception as e:
+        logger.warning("Lifespan final-flush skipped: %s", e)
 
 
 app = FastAPI(
