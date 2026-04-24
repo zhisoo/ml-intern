@@ -8,15 +8,13 @@ generic review habit, follow these.
 
 Every finding carries one of three priority labels:
 
-- **P0** — blocks merge. Would break production behavior, leak data or cost, or
-  break a rollback.
-- **P1** — worth fixing, not blocking. Minor bugs, code-quality issues, or
-  follow-up refactors.
-- **P2** — informational. Pre-existing bugs not introduced by this PR, context
-  the author should know, or non-blocking observations.
+- **P0** — blocks merge.
+- **P1** — worth fixing, not blocking.
+- **P2** — informational.
 
 Write labels as plain text (`P0`, `P1`, `P2`) in finding headers. Do not use
-emoji or colored markers.
+emoji or colored markers. Use judgment on what belongs at which level — this
+repo does not enumerate P0 cases; read the code and decide.
 
 ## Default bias: rigor
 
@@ -64,40 +62,11 @@ P0-class concern, before writing it up:
   inference from naming or structure.
 
 A finding you "spotted" by scanning the diff is more likely to be a false
-positive than a finding you verified by reading the code around it. If you
-cannot invest the depth to verify, do not post the finding.
-
-## What counts as P0 in this repo
-
-Reserve P0 for findings that would break production behavior, leak data or cost,
-or break a rollback. For this repo that means:
-
-- **LLM routing breakage** — changes that break LiteLLM calls or Bedrock inference
-  profile routing (`bedrock/us.anthropic.claude-*` ids, `anthropic/`, `openai/`,
-  HF router). Includes wrong `thinking` / `output_config` shape, wrong
-  `reasoning_effort` cascade, and dropped prompt-cache markers on system prompt or
-  tools.
-- **Effort-probe regression** — changes to `agent/core/llm_params.py` or the effort
-  probe cascade that silently drop thinking on specific models.
-- **Auth / quota regression** — any change to the sandbox bearer-token guard, the
-  Opus daily cap, or the HF-org gate that fails open, leaks Opus access to
-  non-allowlisted orgs, or bypasses the daily cap. Fail-closed defaults are required.
-- **Injection / SSRF** — unsanitized input flowing into `subprocess`, `bash -c`,
-  URL fetches, or HTML render paths. Note: `bash -c "$user_input"` is still
-  injection-vulnerable even inside `asyncio.create_subprocess_exec` — flag that as
-  cosmetic if the PR claims it as a fix.
-- **Agent-loop correctness** — broken streaming, lost `thinking_blocks` across tool
-  turns, broken Ctrl-C handling, lost messages across compaction, session
-  persistence that drops state on resume.
-- **Backend/frontend contract drift** — FastAPI route signature changes without the
-  matching React client update (or vice versa).
-
-Everything else — style, naming, refactor suggestions, docstring polish, test
-organization — is P1 at most.
+positive than a finding you verified by reading the code around it.
 
 ## P1 cap
 
-Report at most **5** P1 findings per review. If you found more, say "plus N
+Report at most **3** P1 findings per review. If you found more, say "plus N
 similar items" in the summary. If everything you found is P1 or below, open the
 summary with "No blocking issues."
 
@@ -118,12 +87,6 @@ Anything in these paths — skip entirely:
 - `session_logs/**`, `reports/**`
 - Anything under a `gen/` or `generated/` path
 
-Anything CI already enforces — skip entirely:
-
-- Lint, formatting, import order (ruff covers it)
-- Basic type errors (mypy / pyright covers it if it runs in CI)
-- Spelling (out of scope unless the typo is in a user-facing string)
-
 Anything speculative — do not post:
 
 - "This might be slow" without a concrete complexity claim tied to a specific
@@ -131,26 +94,6 @@ Anything speculative — do not post:
 - "Consider adding a test" without naming the specific behavior that is
   untested and would regress silently
 - Hypothetical race conditions without a concrete interleaving
-
-## Always check
-
-- New provider / routing paths (`anthropic/`, `openai/`, `bedrock/`, any new
-  prefix) are added to the `startswith` tuple in
-  `agent/core/model_switcher.py::_print_hf_routing_info` so they bypass the HF
-  router catalog lookup.
-- New LLM calls pass through `agent/core/llm_params.py` so effort and caching
-  are applied uniformly. Inline `litellm.acompletion` calls that bypass it are
-  P0.
-- New tools classified as destructive (writes to jobs, sandbox, filesystem)
-  require approval; missing `approval_required` semantics is P0.
-- New backend routes that mutate state require the bearer-token / auth guard.
-  Public routes that leak user input into logs are P0.
-- Changes to `agent/prompts/system_prompt_v*.yaml` — diff against the previous
-  version and call out any **dropped rules** explicitly; an unintentionally
-  removed guardrail is P0.
-- Changes to prompt-cache markers — the cache breakpoint on the system prompt
-  and the tool block must stay intact. Breaking the cache silently is P0 (cost
-  regression).
 
 ## Dependency PRs
 
@@ -184,10 +127,6 @@ Every behavior claim in a finding must cite `file:line`. "This breaks X" is not
 actionable without a line reference. If you cannot cite a line, do not post
 the finding.
 
-For routing / effort / caching claims specifically: cite both the call site and
-the function in `llm_params.py` or `effort_probe.py` that handles it, so the
-author can verify the chain end-to-end.
-
 ## Summary shape
 
 Open the review body with a single-line tally and an explicit merge verdict, on
@@ -213,14 +152,3 @@ Then a **What I checked** bullet list — one line per major area you examined,
 regardless of whether you found anything. This gives the maintainer visible
 coverage at a glance and lets them decide whether to spot-check areas you
 didn't touch.
-
-Example:
-
-> What I checked:
-> - LiteLLM/Bedrock routing in `llm_params.py`, `effort_probe.py`
-> - Auth guard on the new `/sandbox/upload` route
-> - Prompt-cache markers on the modified system prompt
-> - Frontend message-bubble contract against the new `event_queue` shape
-
-Then one paragraph of context at most. Everything else belongs in inline
-comments.
