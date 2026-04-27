@@ -39,7 +39,8 @@ COPY configs/ ./configs/
 COPY --from=frontend-builder /app/frontend/dist ./static/
 
 # Create directories and set ownership
-RUN mkdir -p /app/session_logs && \
+# Also create a logs directory for local debugging
+RUN mkdir -p /app/session_logs /app/logs && \
     chown -R user:user /app
 
 # Switch to non-root user
@@ -49,7 +50,8 @@ USER user
 ENV HOME=/home/user \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    LOG_LEVEL=INFO
 
 # Expose port
 EXPOSE 7860
